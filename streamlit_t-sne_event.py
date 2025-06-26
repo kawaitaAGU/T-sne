@@ -1,7 +1,7 @@
+import os
 import pickle
 import numpy as np
 import pandas as pd
-import os
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
@@ -10,43 +10,49 @@ from sklearn.manifold import TSNE
 st.set_page_config(page_title="t-SNE 可視化（重心付き）", layout="wide")
 st.title("🧠 国家試験問題クラスタ可視化（重心付き）")
 
-# ✅ embeddings_with_subject.pkl の存在確認、なければ8分割ファイルから再構築
-if not os.path.exists("embeddings_with_subject.pkl"):
-    st.warning("❗ embeddings_with_subject.pkl が見つかりません。結合処理を開始します…")
+data_file = "embeddings_with_subject.pkl"
 
-    part_files = [f"embeddings_part_{i}.pkl" for i in range(8)]
-    missing_files = [f for f in part_files if not os.path.exists(f)]
+# ✅ ファイルがなければ結合を実行
+if not os.path.exists(data_file):
+    st.warning(f"❗ {data_file} が見つかりません。結合処理を開始します…")
+
+    embeddings_list = []
+    dfs = []
+    missing_files = []
+
+    for i in range(1, 9):  # ← part_1.pkl〜part_8.pkl
+        part_path = f"embeddings_part_{i}.pkl"
+        if os.path.exists(part_path):
+            with open(part_path, "rb") as f:
+                part = pickle.load(f)
+                embeddings_list.append(part["embeddings"])
+                dfs.append(part["df"])
+        else:
+            missing_files.append(part_path)
 
     if missing_files:
-        st.error(f"❌ 以下のファイルが見つかりません: {', '.join(missing_files)}")
+        st.error(f"❌以下のファイルが見つかりません: {', '.join(missing_files)}")
         st.stop()
 
-    all_embeddings = []
-    all_dfs = []
-    for file in part_files:
-        with open(file, "rb") as f:
-            part = pickle.load(f)
-            all_embeddings.append(part["embeddings"])
-            all_dfs.append(part["df"])
-    
-    embeddings = np.vstack(all_embeddings)
-    df = pd.concat(all_dfs, ignore_index=True)
+    embeddings = np.vstack(embeddings_list)
+    df = pd.concat(dfs, ignore_index=True)
 
-    with open("embeddings_with_subject.pkl", "wb") as f:
+    with open(data_file, "wb") as f:
         pickle.dump({"embeddings": embeddings, "df": df}, f)
 
-    st.success("✅ embeddings_with_subject.pkl を結合して作成しました。")
+    st.success("✅ 再結合と保存が完了しました。")
 
-# ✅ embeddings_with_subject.pkl 読み込み
-with open("embeddings_with_subject.pkl", "rb") as f:
+# ✅ 正常に読み込み
+with open(data_file, "rb") as f:
     data = pickle.load(f)
 
 embeddings = data["embeddings"]
 df = data["df"]
 
-# ✅ t-SNE 実行（リアルタイム）
+# ✅ t-SNE 実行
 tsne = TSNE(n_components=2, random_state=42, perplexity=30)
 tsne_result = tsne.fit_transform(embeddings)
+
 df["x"] = tsne_result[:, 0]
 df["y"] = tsne_result[:, 1]
 
@@ -54,12 +60,12 @@ df["y"] = tsne_result[:, 1]
 subjects = sorted(df["推定科目"].dropna().unique())
 selected_subject = st.selectbox("表示する科目を選んでください：", subjects)
 
-# ✅ 色分け・重心計算
+# ✅ 色分け列と重心
 df["色分け"] = df["推定科目"].apply(lambda x: "選択科目" if x == selected_subject else "その他")
 overall_center = df[["x", "y"]].mean()
 subject_center = df[df["推定科目"] == selected_subject][["x", "y"]].mean()
 
-# ✅ プロット生成
+# ✅ Plotly 描画
 fig = px.scatter(
     df,
     x="x",
@@ -79,7 +85,6 @@ fig.add_trace(go.Scatter(
     marker=dict(symbol='x', size=14, color='black'),
     name='全体の重心'
 ))
-
 fig.add_trace(go.Scatter(
     x=[subject_center["x"]],
     y=[subject_center["y"]],
